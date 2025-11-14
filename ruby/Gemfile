@@ -1,0 +1,5 @@
+source 'https://rubygems.org'
+gem 'thor'
+gem 'aws-sdk-s3', '~> 1.149'
+gem 'json_schemer'
+gem 'rspec'

@@ -1,0 +1,51 @@
+#!/usr/bin/env ruby
+require 'thor'
+require 'open-uri'
+require 'zip'
+require 'aws-sdk-s3'
+require 'json'
+require 'fileutils'
+
+class GTFS < Thor
+  desc "ingest", "Download a GTFS zip and land partitioned CSVs to S3"
+  option :region, required: true
+  def ingest
+    gtfs_url = ENV['GTFS_URL'] || 'https://data.calgary.ca/download/npk7-z3bj/application/zip'
+    bucket = ENV['S3_BUCKET'] || 'mobility-raw'
+    ts = Time.now.utc
+    part = ts.strftime("%Y/%m/%d")
+    prefix = "gtfs/#{part}/#{options[:region]}"
+
+    puts "Downloading GTFS from #{gtfs_url} ..."
+    tmp = "/tmp/gtfs.zip"
+    URI.open(gtfs_url) do |u| File.write(tmp, u.read, mode: 'wb') end
+
+    outdir = "/tmp/gtfs_extract"
+    FileUtils.rm_rf(outdir); FileUtils.mkdir_p(outdir)
+    Zip::File.open(tmp) do |zip_file|
+      zip_file.each do |f|
+        next unless f.name =~ /(stops|trips|stop_times|routes)\.txt$/
+        fpath = File.join(outdir, File.basename(f.name))
+        zip_file.extract(f, fpath) { true }
+      end
+    end
+
+    s3 = Aws::S3::Client.new(
+      endpoint: ENV['S3_ENDPOINT'] || 'http://localhost:9000',
+      access_key_id: ENV['AWS_ACCESS_KEY_ID'] || 'minio',
+      secret_access_key: ENV['AWS_SECRET_ACCESS_KEY'] || 'minio12345',
+      force_path_style: true,
+      region: 'us-east-1'
+    )
+
+    Dir.glob(File.join(outdir, "*.txt")).each do |f|
+      key = "#{prefix}/#{File.basename(f)}"
+      puts "Uploading #{key}"
+      s3.put_object(bucket: bucket, key: key, body: File.open(f, 'rb'))
+    end
+
+    puts "Done. Landed to s3://#{bucket}/#{prefix}/"
+  end
+end
+
+GTFS.start(ARGV)

@@ -1,0 +1,45 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Objects in Bronze Trips",
+      "targets": [
+        {
+          "expr": "s3_partition_object_count{prefix=\"bronze/trips\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last Modified (epoch)",
+      "targets": [
+        {
+          "expr": "s3_partition_last_modified_epoch{prefix=\"bronze/trips\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    }
+  ],
+  "schemaVersion": 37,
+  "title": "Lakehouse Freshness",
+  "version": 1
+}

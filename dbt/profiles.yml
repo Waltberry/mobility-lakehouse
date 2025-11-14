@@ -1,0 +1,12 @@
+mobility:
+  outputs:
+    dev:
+      type: trino
+      user: trino
+      password: ""
+      host: trino
+      port: 8080
+      http_scheme: http
+      catalog: delta
+      schema: marts
+  target: dev

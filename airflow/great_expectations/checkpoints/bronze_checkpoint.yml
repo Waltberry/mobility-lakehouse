@@ -1,0 +1,14 @@
+name: bronze_checkpoint
+config_version: 1.0
+class_name: Checkpoint
+run_name_template: "%Y%m%d-%H%M%S-bronze"
+validations:
+  - batch_request:
+      datasource_name: bronze_trips
+      data_connector_name: default_runtime_data_connector
+      data_asset_name: trips_stream_sample
+      runtime_parameters:
+        batch_data: null
+      batch_identifiers:
+        default_id: "manual"
+    expectation_suite_name: bronze_trips
