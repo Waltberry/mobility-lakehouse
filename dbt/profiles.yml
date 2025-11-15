@@ -1,12 +1,14 @@
 mobility:
+  target: dev
   outputs:
     dev:
       type: trino
-      user: trino
-      password: ""
       host: trino
       port: 8080
+      user: dbt
+      catalog: hive
+      schema: mobility_gold
       http_scheme: http
-      catalog: delta
-      schema: marts
-  target: dev
+      session_properties:
+        hive.non-managed-table-writes-enabled: true
+        hive.s3.path-style-access: true

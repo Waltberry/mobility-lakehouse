@@ -12,9 +12,9 @@
 9. In **Airflow**, enable `mobility_lakehouse` DAG (GTFS ingest → GE → dbt)
 10. Query **gold** KPIs in Trino and visualize externally (e.g. Power BI).
 
-## Resume Bullets (paste-ready)
+<!-- ## Resume Bullets (paste-ready)
 - Delivered a **polyglot mobility lakehouse**: **Scala Spark** streaming from Kafka to **Delta Bronze**, **Python/Airflow** orchestration with **Great Expectations** data quality, **Ruby** GTFS ingestion to S3 (MinIO), and **Trino/dbt** curated marts; implemented **freshness SLAs** and **partition‑pruning** performance baselines.
-- Built **Rust** load generator publishing ride events to Kafka; added a **Go** partition watcher exposing **Prometheus** metrics visualized in **Grafana**; automated bucket/topic init and one-command developer bring-up via Docker Compose and Make.
+- Built **Rust** load generator publishing ride events to Kafka; added a **Go** partition watcher exposing **Prometheus** metrics visualized in **Grafana**; automated bucket/topic init and one-command developer bring-up via Docker Compose and Make. -->
 
 ## Power BI Ideas
 - Trips per hour by market (stacked column) + 7‑day trendline

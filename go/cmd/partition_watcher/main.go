@@ -1,73 +1,140 @@
 package main
 
 import (
-\t"context"
-\t"log"
-\t"net/http"
-\t"os"
-\t"time"
+	"context"
+	"encoding/json"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 
-\t"github.com/minio/minio-go/v7"
-\t"github.com/minio/minio-go/v7/pkg/credentials"
-\t"github.com/prometheus/client_golang/prometheus"
-\t"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
-\tobjCount = prometheus.NewGaugeVec(
-\t\tprometheus.GaugeOpts{Name: "s3_partition_object_count", Help: "Objects per prefix"},
-\t\t[]string{"prefix"},
-\t)
-\tlastMod = prometheus.NewGaugeVec(
-\t\tprometheus.GaugeOpts{Name: "s3_partition_last_modified_epoch", Help: "Last modified time per prefix"},
-\t\t[]string{"prefix"},
-\t)
+	metricObjCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "lakehouse_objects_total",
+		Help: "Count of objects under the watched prefix",
+	})
+	metricLastMod = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "lakehouse_last_modified_seconds",
+		Help: "Unix timestamp of the most-recent object",
+	})
+	metricFreshness = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "lakehouse_freshness_seconds",
+		Help: "Seconds since last object modification",
+	})
 )
 
+func mustEnv(key, def string) string {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+func parseSecure(endpoint string) (host string, secure bool) {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme == "" {
+		// assume http if scheme missing
+		return endpoint, false
+	}
+	host = u.Host
+	secure = (u.Scheme == "https")
+	return
+}
+
+func postSlack(webhook, text string) {
+	body := map[string]string{"text": text}
+	b, _ := json.Marshal(body)
+	_, err := http.Post(webhook, "application/json", strings.NewReader(string(b)))
+	if err != nil {
+		log.Printf("slack post failed: %v", err)
+	}
+}
+
 func main() {
-\tprometheus.MustRegister(objCount, lastMod)
+	// Env (wired in docker-compose)
+	endpoint := mustEnv("MINIO_ENDPOINT", "http://minio:9000")
+	accessKey := mustEnv("MINIO_ACCESS_KEY", "minio")
+	secretKey := mustEnv("MINIO_SECRET_KEY", "minio12345")
+	bucket := mustEnv("MINIO_BUCKET", "mobility-delta")
+	prefix := mustEnv("WATCH_PREFIX", "bronze/trips")
+	webhook := strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL"))
+	slaStr := mustEnv("FRESHNESS_SLA_SECONDS", "900") // 15 min default
+	slaSeconds, _ := strconv.Atoi(slaStr)
 
-\tendpoint := getenv("MINIO_ENDPOINT", "http://minio:9000")
-\tak := getenv("MINIO_ACCESS_KEY", "minio")
-\tsk := getenv("MINIO_SECRET_KEY", "minio12345")
-\tbucket := getenv("MINIO_BUCKET", "mobility-delta")
-\tprefix := getenv("WATCH_PREFIX", "bronze/trips")
+	host, secure := parseSecure(endpoint)
+	client, err := minio.New(host, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: secure,
+	})
+	if err != nil {
+		log.Fatalf("minio connect: %v", err)
+	}
 
-\tclient, err := minio.New(endpointHost(endpoint), &minio.Options{
-\t\tCreds:  credentials.NewStaticV4(ak, sk, ""),
-\t\tSecure: false,
-\t})
-\tif err != nil { log.Fatal(err) }
+	// Prometheus
+	prometheus.MustRegister(metricObjCount, metricLastMod, metricFreshness)
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		log.Println("metrics listening on :9108/metrics")
+		_ = http.ListenAndServe(":9108", nil)
+	}()
 
-\tgo func() {
-\t\tfor {
-\t\t\tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-\t\t\tcount := 0
-\t\t\tvar latest time.Time
-\t\t\tfor obj := range client.ListObjects(ctx, bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
-\t\t\t\tif obj.Err != nil { continue }
-\t\t\t\tcount++
-\t\t\t\tif obj.LastModified.After(latest) { latest = obj.LastModified }
-\t\t\t}
-\t\t\tobjCount.WithLabelValues(prefix).Set(float64(count))
-\t\t\tif !latest.IsZero() { lastMod.WithLabelValues(prefix).Set(float64(latest.Unix())) }
-\t\t\tcancel()
-\t\t\ttime.Sleep(15 * time.Second)
-\t\t}
-\t}()
+	// Periodic scan
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
-\thttp.Handle("/metrics", promhttp.Handler())
-\tlog.Println("Serving metrics on :9108/metrics")
-\tlog.Fatal(http.ListenAndServe(":9108", nil))
-}
+	var lastAlert string
+	for {
+		now := time.Now().UTC()
+		objCount := 0
+		newest := time.Time{}
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 
-func getenv(k, d string) string {
-\tif v := os.Getenv(k); v != "" { return v }
-\treturn d
-}
-func endpointHost(e string) string {
-\t// strip scheme if present
-\tif len(e) > 7 && e[:7] == "http://" { return e[7:] }
-\tif len(e) > 8 && e[:8] == "https://" { return e[8:] }
-\treturn e
+		for obj := range client.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+			Prefix:    prefix,
+			Recursive: true,
+		}) {
+			if obj.Err != nil {
+				log.Printf("list err: %v", obj.Err)
+				continue
+			}
+			objCount++
+			if obj.LastModified.After(newest) {
+				newest = obj.LastModified
+			}
+		}
+		cancel()
+
+		metricObjCount.Set(float64(objCount))
+		if !newest.IsZero() {
+			metricLastMod.Set(float64(newest.Unix()))
+			fresh := now.Sub(newest).Seconds()
+			metricFreshness.Set(fresh)
+
+			// Optional Slack alert on SLA breach (dedupe same minute msg)
+			if webhook != "" && slaSeconds > 0 && int(fresh) > slaSeconds {
+				msg := "⏰ Freshness breach: " + strconv.Itoa(int(fresh)) + "s > SLA " + strconv.Itoa(slaSeconds) +
+					" (bucket=" + bucket + ", prefix=" + prefix + ")"
+				if minute := now.Format("2006-01-02T15:04"); minute != lastAlert { // simple dedupe
+					postSlack(webhook, msg)
+					lastAlert = minute
+				}
+			}
+		} else {
+			metricLastMod.Set(0)
+			metricFreshness.Set(1e12)
+		}
+
+		log.Printf("scan ok: count=%d newest=%v", objCount, newest)
+		<-ticker.C
+	}
 }

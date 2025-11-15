@@ -94,4 +94,4 @@ make ge            # run Great Expectations checkpoint
 - In **Trino**, run the queries in `sql/queries.sql` (partition pruning demos).
 - Explore **Grafana** dashboard (freshness, object counts).
 
-See `docs/PLAYBOOK.md` for a full walkthrough and resume bullets.
+See `docs/PLAYBOOK.md` for a full walkthrough

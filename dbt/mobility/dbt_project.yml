@@ -1,10 +1,6 @@
-name: 'mobility'
-version: '1.0'
-profile: 'mobility'
+name: "mobility"
+version: "1.0"
+profile: "mobility"
 models:
   mobility:
-    +materialized: view
-    silver:
-      +schema: silver
-    gold:
-      +schema: gold
+    +materialized: table

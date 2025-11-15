@@ -1,31 +1,46 @@
 SHELL := /bin/bash
-PROJECT := mobility-lakehouse
+.DEFAULT_GOAL := help
+COMPOSE ?= docker compose
 
+## Start all services
 up:
-\tdocker compose up -d --build
+	$(COMPOSE) up -d
 
+## Stop all services
 down:
-\tdocker compose down -v
+	$(COMPOSE) down
 
-logs:
-\tdocker compose logs -f --tail=200
-
+## One-time bootstrap: buckets, topics, defaults, demo data
 init:
-\tbash scripts/init_kafka_topics.sh
-\tbash scripts/create_buckets.sh
+	bash scripts/init.sh
 
-airflow-sh:
-\tdocker compose exec airflow-webserver bash
-
+## Submit Spark job(s)
 spark-submit:
-\tdocker compose run --rm spark-submit \
-\t  /opt/spark/bin/spark-submit \
-\t  --class com.mobility.BronzeStream \
-\t  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,io.delta:delta-core_2.12:2.4.0,com.amazonaws:aws-java-sdk-bundle:1.12.743,org.apache.hadoop:hadoop-aws:3.3.4 \
-\t  /jobs/mobility-stream-assembly.jar
+	bash scripts/spark_submit.sh
 
-dbt:
-\tdocker compose run --rm dbt-run
-
+## Great Expectations validations
 ge:
-\tdocker compose run --rm great-exp bash -lc "great_expectations checkpoint run bronze_checkpoint"
+	bash scripts/run_ge.sh
+
+## dbt models + docs
+dbt:
+	bash scripts/run_dbt.sh
+
+## Tail logs
+logs:
+	$(COMPOSE) logs -f
+
+## Status
+ps:
+	$(COMPOSE) ps
+
+## Nuke everything (volumes, orphans)
+clean:
+	$(COMPOSE) down -v --remove-orphans
+	docker volume prune -f
+	docker network prune -f
+
+## Help
+help:
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
+	awk 'BEGIN {FS=":.*?## "}; {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}'
